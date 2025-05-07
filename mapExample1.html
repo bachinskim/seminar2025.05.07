@@ -1,0 +1,141 @@
+<html>
+  <head>
+    <title>Add a Map using HTML</title>
+
+    <style>
+      #map {
+        height: 100%;
+      }
+    </style>
+  </head>
+  <body>
+    <button onclick="addMarker()">Add marker</button>
+    <button onclick="findPlaces()">Find places</button>
+    <div id="map"></div>
+    <!-- 
+      The `defer` attribute causes the script to execute after the full HTML
+      document has been parsed. For non-blocking uses, avoiding race conditions,
+      and consistent behavior across browsers, consider loading using Promises. See
+      https://developers.google.com/maps/documentation/javascript/load-maps-js-api
+      for more information.
+      -->
+
+    <script>
+          ((g) => {
+            var h,
+              a,
+              k,
+              p = "The Google Maps JavaScript API",
+              c = "google",
+              l = "importLibrary",
+              q = "__ib__",
+              m = document,
+              b = window;
+            b = b[c] || (b[c] = {});
+            var d = b.maps || (b.maps = {}),
+              r = new Set(),
+              e = new URLSearchParams(),
+              u = () =>
+                h ||
+                (h = new Promise(async (f, n) => {
+                  await (a = m.createElement("script"));
+                  e.set("libraries", [...r] + "");
+                  for (k in g)
+                    e.set(
+                      k.replace(/[A-Z]/g, (t) => "_" + t[0].toLowerCase()),
+                      g[k]
+                    );
+                  e.set("callback", c + ".maps." + q);
+                  a.src = `https://maps.${c}apis.com/maps/api/js?` + e;
+                  d[q] = f;
+                  a.onerror = () => (h = n(Error(p + " could not load.")));
+                  a.nonce = m.querySelector("script[nonce]")?.nonce || "";
+                  m.head.append(a);
+                }));
+            d[l]
+              ? console.warn(p + " only loads once. Ignoring:", g)
+              : (d[l] = (f, ...n) => r.add(f) && u().then(() => d[l](f, ...n)));
+          })({
+            key: "..................", // Your API key goes here.
+            v: "weekly",
+            // Use the 'v' parameter to indicate the version to use (weekly, beta, alpha, etc.).
+            // Add other bootstrap parameters as needed, using camel case.
+          });
+
+          
+
+          let map;
+
+          async function initMap() {
+            const { Map } = await google.maps.importLibrary("maps");
+            const { AdvancedMarkerElement } = await google.maps.importLibrary("marker");
+            const {Place} = await google.maps.importLibrary("places");
+  
+
+            map = new Map(document.getElementById("map"), {
+              center: { lat: 60.385712422611036, lng: 5.332726397600811 },
+              zoom: 15,
+              zoomControl: true,
+              cameraControl: false,
+              mapTypeControl: false,
+              scaleControl: true,
+              streetViewControl: false,
+              rotateControl: false,
+              fullscreenControl: false,
+              mapTypeId: 'terrain',
+              mapId: '' // Set map id to use your map with custom style.
+            });
+          }
+
+          initMap();
+          capabilities = map.getMapCapabilities();
+          console.log(capabilities);
+
+    function addMarker() {
+            const marker = new google.maps.marker.AdvancedMarkerElement({
+        map,
+        position: {lat: 60.385712422611036, lng: 5.332726397600811 },
+        title: 'Media City Bergen'
+      });
+    }
+
+    async function findPlaces() {
+    const { Place } = await google.maps.importLibrary("places");
+    const { AdvancedMarkerElement } = await google.maps.importLibrary("marker");
+    const request = {
+        textQuery: 'Restaurant',
+        fields: ['displayName', 'location', 'businessStatus'],
+        includedType: 'restaurant',
+        locationBias: { lat: 60.385712422611036, lng: 5.332726397600811 },
+        isOpenNow: true,
+        language: 'en-US',
+        maxResultCount: 8,
+        minRating: 3.2,
+        region: 'no',
+        useStrictTypeFiltering: false,
+    };
+    //@ts-ignore
+    const { places } = await Place.searchByText(request);
+    if (places.length) {
+        console.log(places);
+        const { LatLngBounds } = await google.maps.importLibrary("core");
+        const bounds = new LatLngBounds();
+        // Loop through and get all the results.
+        places.forEach((place) => {
+            const markerView = new AdvancedMarkerElement({
+                map,
+                position: place.location,
+                title: place.displayName,
+            });
+            bounds.extend(place.location);
+            console.log(place);
+        });
+        map.fitBounds(bounds);
+    }
+    else {
+        console.log('No results');
+    }
+}
+    </script>
+  </body>
+</html>

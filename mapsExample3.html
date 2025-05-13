@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>Bergen → Stavanger route (Google Maps JS API)</title>
+    <meta charset="utf-8" />
+    <style>
+      /* Full-screen map */
+      #map {
+        height: 100vh;
+        width: 100%;
+      }
+    </style>
+
+    <!-- 1. Load Maps JS API (replace YOUR_API_KEY) -->
+  </head>
+
+  <body>
+    <div id="map"></div>
+
+    <script
+      async
+      src="https://maps.googleapis.com/maps/api/js?key=YOUR_GOOGLE_API_KEY&callback=initMap"
+      defer
+    ></script>
+
+    <script>
+      let API_KEY = "YOUR_GOOGLE_API_KEY";
+      let map; // Map instance (global so drawRoute can access)
+      let polyline; // Reference to the route polyline
+
+      // 2. Initialize the map
+      function initMap() {
+        const centerBetween = {
+          lat: 60.385712422611036,
+          lng: 5.332726397600811,
+        }; // Rough midpoint
+        map = new google.maps.Map(document.getElementById("map"), {
+          zoom: 7,
+          center: centerBetween,
+          mapTypeId: "roadmap",
+        });
+
+        // Automatically draw the route once the map is ready
+        google.maps.event.addListenerOnce(map, "idle", drawMapContent);
+        map.addListener("click", addLatLng);
+      }
+
+      // 3. Fetch the driving route and draw it as a polyline
+      function drawMapContent() {
+        origin = { lat: 60.39299, lng: 5.32415 }; // Bergen
+        destination = { lat: 58.96998, lng: 5.73311 }; // Stavanger
+        drawBicycleRoute(map, origin, destination, API_KEY);
+
+        addBergenSentrumPolygon(map);
+      }
+
+      function drawRouteOldApi() {
+        const directionsService = new google.maps.DirectionsService();
+
+        const request = {
+          origin: { lat: 60.39299, lng: 5.32415 }, // Bergen
+          destination: { lat: 58.96998, lng: 5.73311 }, // Stavanger
+          travelMode: google.maps.TravelMode.BICYCLING,
+        };
+
+        directionsService.route(request, (result, status) => {
+          if (status === google.maps.DirectionsStatus.OK) {
+            const routePath = result.routes[0].overview_path;
+            console.log("routePath", routePath);
+
+            // Remove earlier polyline if it exists
+            if (polyline) polyline.setMap(null);
+
+            polyline = new google.maps.Polyline({
+              path: routePath,
+              strokeColor: "#0000FF",
+              strokeOpacity: 0.7,
+              strokeWeight: 20,
+            });
+
+            polyline.setMap(map);
+
+            // Optional: fit bounds to the whole route
+            const bounds = new google.maps.LatLngBounds();
+            routePath.forEach((p) => bounds.extend(p));
+            map.fitBounds(bounds);
+          } else {
+            console.warn("Directions request failed due to " + status);
+          }
+        });
+      }
+
+      function addLatLng(event) {
+        const path = polyline.getPath();
+
+        // Because path is an MVCArray, we can simply append a new coordinate
+        // and it will automatically appear.
+        path.push(event.latLng);
+        // Add a new marker at the new plotted point on the polyline.
+        //   new google.maps.Marker({
+        //     position: event.latLng,
+        //     title: "#" + path.getLength(),
+        //     map: map,
+        //   });
+      }
+
+      /**
+       * Draw a bicycle-friendly route on a Google Map.
+       *
+       * @param {google.maps.Map}   map       – an already-initialised map
+       * @param {{lat:number,lng:number}} origin      – start point (LatLngLiteral)
+       * @param {{lat:number,lng:number}} destination – end point   (LatLngLiteral)
+       * @param {string} apiKey               – Maps Platform key with Routes API enabled
+       */
+      async function drawBicycleRoute(map, origin, destination, apiKey) {
+        // 1️⃣ build the REST request expected by directions/v2:computeRoutes
+        const requestBody = {
+          origin: {
+            location: {
+              latLng: { latitude: origin.lat, longitude: origin.lng },
+            },
+          },
+          destination: {
+            location: {
+              latLng: { latitude: destination.lat, longitude: destination.lng },
+            },
+          },
+          travelMode: "BICYCLE", // <— the new enum value for bikes 🟢
+          // routingPreference: 'TRAFFIC_AWARE' // optional, but harmless for bikes
+        };
+        console.log("requestBody", requestBody);
+
+        // 2️⃣ call the endpoint
+        const endpoint = `https://routes.googleapis.com/directions/v2:computeRoutes?key=${apiKey}`;
+
+        const response = await fetch(endpoint, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            // tell the server we only need the encoded polyline (saves quota & bytes)
+            "X-Goog-FieldMask": "routes.polyline.encodedPolyline",
+          },
+          body: JSON.stringify(requestBody),
+        });
+
+        if (!response.ok) {
+          throw new Error(`Routes API error → ${response.statusText}`);
+        }
+
+        const json = await response.json();
+        const encoded = json.routes?.[0]?.polyline?.encodedPolyline;
+        if (!encoded) {
+          throw new Error("No bicycle route returned");
+        }
+
+        // 3️⃣ decode the polyline to LatLngs
+        //    geometry library is loaded lazily via importLibrary()
+        const { encoding } = await google.maps.importLibrary("geometry");
+        const path = encoding.decodePath(encoded);
+
+        // 4️⃣ add a polyline and fit the map
+        const line = new google.maps.Polyline({
+          path,
+          strokeColor: "#29b6f6",
+          strokeOpacity: 0.8,
+          strokeWeight: 5,
+        });
+
+        line.setMap(map);
+
+        // zoom / pan so the whole ride is visible
+        const bounds = new google.maps.LatLngBounds();
+        path.forEach((p) => bounds.extend(p));
+        map.fitBounds(bounds);
+
+      }
+
+      /**
+       * Draw a green polygon around Bergen sentrum.
+       * Call this after the map has been initialised.
+       *
+       * @param {google.maps.Map} map – your Google Map instance
+       * @returns {google.maps.Polygon} – the polygon so you can tweak/remove it later
+       */
+      function addBergenSentrumPolygon(map) {
+        // Key landmarks that ring the city centre (clockwise order)
+        const sentrumCoords = [
+          { lat: 60.39325, lng: 5.30135 }, // Nordnes Park
+          { lat: 60.39998, lng: 5.31854 }, // Bergenhus Fortress
+          { lat: 60.39722, lng: 5.32306 }, // Bryggen wharf
+          { lat: 60.39028, lng: 5.33306 }, // Bergen Station
+          { lat: 60.38361, lng: 5.32611 }, // Møhlenpris waterfront
+          { lat: 60.39361, lng: 5.31537 }, // Nøstet quay :contentReference[oaicite:5]{index=5}
+        ];
+
+        const sentrumPolygon = new google.maps.Polygon({
+          paths: sentrumCoords,
+          strokeColor: "#008000",
+          strokeOpacity: 0.9,
+          strokeWeight: 2,
+          fillColor: "#00FF00",
+          fillOpacity: 0.25,
+        });
+
+        sentrumPolygon.setMap(map);
+        return sentrumPolygon;
+      }
+    </script>
+  </body>
+</html>
